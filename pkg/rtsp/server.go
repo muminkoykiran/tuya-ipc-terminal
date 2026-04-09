@@ -430,16 +430,30 @@ func (s *RTSPServer) cleanupRoutine() {
 
 func (s *RTSPServer) cleanupInactiveStreams() {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
 
 	now := time.Now()
+	var toStop []*CameraStream
+	var toDelete []string
+
 	for deviceID, stream := range s.streams {
-		// Remove streams inactive for more than 5 minutes
+		// Collect streams inactive for more than 5 minutes with no clients
 		if now.Sub(stream.lastActivity) > 5*time.Minute && len(stream.clients) == 0 {
 			core.Logger.Trace().Msgf("Cleaning up inactive stream for camera: %s", stream.camera.DeviceName)
-			stream.Stop()
-			delete(s.streams, deviceID)
+			toStop = append(toStop, stream)
+			toDelete = append(toDelete, deviceID)
 		}
+	}
+
+	// Remove from map while still holding the lock, then release before
+	// calling stream.Stop() which performs slow WebRTC teardown.
+	for _, deviceID := range toDelete {
+		delete(s.streams, deviceID)
+	}
+
+	s.mutex.Unlock()
+
+	for _, stream := range toStop {
+		stream.Stop()
 	}
 }
 
