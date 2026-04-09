@@ -528,8 +528,16 @@ func (cs *CameraStream) SetShutdownDelay(delay time.Duration) {
 }
 
 func (cs *CameraStream) Stop() {
-	// Clear all clients first
+	// Snapshot client IDs under lock to avoid concurrent map iteration/write
+	// panic if AddClient/RemoveClient is called while we iterate.
+	cs.mutex.RLock()
+	sessionIDs := make([]string, 0, len(cs.clients))
 	for sessionID := range cs.clients {
+		sessionIDs = append(sessionIDs, sessionID)
+	}
+	cs.mutex.RUnlock()
+
+	for _, sessionID := range sessionIDs {
 		cs.RemoveClient(sessionID)
 	}
 
