@@ -517,22 +517,31 @@ func (cs *CameraStream) Stop() {
 
 func (cs *CameraStream) startStream() {
 	cs.mutex.Lock()
-	defer cs.mutex.Unlock()
 
 	if cs.active {
+		cs.mutex.Unlock()
 		return
 	}
 
 	core.Logger.Info().Msgf("Starting stream for camera: %s", cs.camera.DeviceName)
 
+	// Release lock before the slow Tuya cloud connection so that concurrent
+	// AddClient() calls (which also acquire cs.mutex) are not blocked while
+	// we wait for the WebRTC bridge to come up.
+	cs.mutex.Unlock()
+
 	if err := cs.webrtcBridge.Start(); err != nil {
 		core.Logger.Error().Err(err).Msg("Failed to start WebRTC bridge")
+		cs.mutex.Lock()
 		cs.stopStreamInternal()
+		cs.mutex.Unlock()
 		return
 	}
 
+	cs.mutex.Lock()
 	cs.connecting = false
 	cs.active = true
+	cs.mutex.Unlock()
 }
 
 func (cs *CameraStream) stopStream() {
