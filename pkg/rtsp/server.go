@@ -57,6 +57,7 @@ type CameraStream struct {
 	clients      map[string]*RTSPClient
 	mutex        sync.RWMutex
 	connecting   bool
+	starting     bool // true while a startStream goroutine is executing
 	active       bool
 	lastActivity time.Time
 
@@ -436,8 +437,15 @@ func (s *RTSPServer) cleanupInactiveStreams() {
 	var toDelete []string
 
 	for deviceID, stream := range s.streams {
+		// Read stream.clients under stream.mutex to avoid a data race with
+		// concurrent AddClient/RemoveClient calls (s.mutex → stream.mutex
+		// ordering is consistent with removeClient).
+		stream.mutex.RLock()
+		clientCount := len(stream.clients)
+		stream.mutex.RUnlock()
+
 		// Collect streams inactive for more than 5 minutes with no clients
-		if now.Sub(stream.lastActivity) > 5*time.Minute && len(stream.clients) == 0 {
+		if now.Sub(stream.lastActivity) > 5*time.Minute && clientCount == 0 {
 			core.Logger.Trace().Msgf("Cleaning up inactive stream for camera: %s", stream.camera.DeviceName)
 			toStop = append(toStop, stream)
 			toDelete = append(toDelete, deviceID)
@@ -532,10 +540,14 @@ func (cs *CameraStream) Stop() {
 func (cs *CameraStream) startStream() {
 	cs.mutex.Lock()
 
-	if cs.active {
+	// Guard against concurrent startStream goroutines (multiple AddClient
+	// calls arriving while the bridge is coming up) and against re-entry
+	// after the stream is already active.
+	if cs.active || cs.starting {
 		cs.mutex.Unlock()
 		return
 	}
+	cs.starting = true
 
 	core.Logger.Info().Msgf("Starting stream for camera: %s", cs.camera.DeviceName)
 
@@ -547,12 +559,14 @@ func (cs *CameraStream) startStream() {
 	if err := cs.webrtcBridge.Start(); err != nil {
 		core.Logger.Error().Err(err).Msg("Failed to start WebRTC bridge")
 		cs.mutex.Lock()
+		cs.starting = false
 		cs.stopStreamInternal()
 		cs.mutex.Unlock()
 		return
 	}
 
 	cs.mutex.Lock()
+	cs.starting = false
 	cs.connecting = false
 	cs.active = true
 	cs.mutex.Unlock()

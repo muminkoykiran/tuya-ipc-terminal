@@ -320,7 +320,7 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 	rf.mutex.RUnlock()
 
 	for _, id := range deadClients {
-		core.Logger.Debug().Msgf("Removing dead video client %s (broken pipe)", id)
+		core.Logger.Debug().Msgf("Removing dead video client %s (connection error)", id)
 		rf.RemoveClient(id)
 	}
 }
@@ -381,7 +381,7 @@ func (rf *RTPForwarder) ForwardAudioPacket(packet *rtp.Packet) {
 	rf.mutex.RUnlock()
 
 	for _, id := range deadClients {
-		core.Logger.Debug().Msgf("Removing dead audio client %s (broken pipe)", id)
+		core.Logger.Debug().Msgf("Removing dead audio client %s (connection error)", id)
 		rf.RemoveClient(id)
 	}
 }
